@@ -7,4 +7,4 @@
 
 # Inference
 1. Follow steps in **Setup and train** (optionally omit step 4/5 if you already have a model).
-2. Run `python predict.py -i <INPUT_DIR_FILE_OR_GLOB> -o <OUTPUT_DIR> -w <PATH_TO_WEIGHTS>.pt`
+2. Run `python predict.py -i <INPUT_DIR_FILE_OR_GLOB> -o <OUTPUT_DIR> -w <PATH_TO_WEIGHTS>.pt`.
