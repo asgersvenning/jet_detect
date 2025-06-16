@@ -1,9 +1,10 @@
 import os
 import re
 from argparse import ArgumentParser
-from glob import glob
 from collections.abc import Iterator
+from glob import glob
 
+from tqdm import tqdm as TQDM
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
@@ -58,9 +59,9 @@ def search_input(src : str):
 def predict(model : YOLO, images : list[str], batch_size : int=16):
     if len(images) < batch_size:
         return model(images)
-    for i in range(0, len(images), batch_size):
+    for i in TQDM(range(0, len(images), batch_size), desc="Running batch inference...", unit="batch"):
         batch_slice = slice(i, min(len(images), i + batch_size))
-        for result in model(images[batch_slice]):
+        for result in model(images[batch_slice], verbose=False):
             yield result
 
 if __name__ == "__main__":
