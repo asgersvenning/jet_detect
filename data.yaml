@@ -1,0 +1,6 @@
+path: data # dataset root directory
+train: train/images # training images (relative to 'path')
+val: val/images # validation images (relative to 'path')
+test: # optional test images
+names:
+    0: flower
