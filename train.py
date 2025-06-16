@@ -5,13 +5,15 @@ from ultralytics import YOLO
 from utils import parse_unknown_arguments
 
 CFG = {
+    "model" : "yolo11s.pt",
+    "epochs" : 5,
     "imgsz" : 640, 
     "workers" : 16, 
     "batch" : 16,
     "single_cls" : True
 }
 
-INVALID_ARGS = ["model", "data"]
+INVALID_ARGS = ["data"]
 
 def overrides():
     parser = ArgumentParser(prog = "train_yolov11", description="Train a YOLOv11 model", epilog="See https://docs.ultralytics.com/modes/train/#train-settings for options. `model` and `data` cannot be specified.")
@@ -30,5 +32,5 @@ if __name__ == "__main__":
     if any([iarg in CFG for iarg in INVALID_ARGS]):
         raise ValueError(f'An invalid argument (one of: {INVALID_ARGS}) found in the config:\n{CFG}')
     
-    model = YOLO("yolo11s.pt")  # Load a pretrained model
-    results = model.train(data="data.yaml", epochs=5, **CFG)
+    model = YOLO(CFG.pop("model"))  # Load a pretrained model
+    results = model.train(data="data.yaml", **CFG)
