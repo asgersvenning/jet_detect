@@ -48,70 +48,108 @@ def search_input(src : str):
         raise RuntimeError(f'No images found in source: {src}')
     return files
 
-def predict(model: str, images: Iterable[tuple[str, str]]) -> Iterator[Any]:
-    # Ultralytics imports kept local to match your pattern
+def predict(
+    model: str,
+    images: RemotePathIterator,
+    *,
+    batch_size: int = 64,
+    imgsz: int = 1280,
+    precision: "Literal['fp32','fp16','bf16']" = "bf16",
+    device: str | int = "0",
+) -> Iterator[Any]:
+    from typing import Literal
+    from contextlib import nullcontext
+    import math
     from ultralytics import YOLO
     from ultralytics.data.loaders import LoadImagesAndVideos, SourceTypes
 
-    class _IterLoader(LoadImagesAndVideos):
-        """Minimal in-memory loader that passes Ultralytics isinstance() gate and streams 1 image/batch."""
-        def __init__(self, it: Iterable[tuple[str, str]], out_q: deque):
+    if isinstance(device, int):
+        device = str(device)
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.set_float32_matmul_precision("high")
+
+    class _MemDataset(LoadImagesAndVideos):
+        def __init__(self, it: Iterable[tuple[str, str]], out_q: deque, bs: int):
             self.it = it
             self._q = out_q
             self.mode = "image"
-            self.bs = 1
+            self.bs = int(bs)
             self.count = 0
-            # make check_source() happy when it reads .source_type for in_memory sources
             self.source_type = SourceTypes(stream=False, screenshot=False, from_img=True, tensor=False)
+            try:
+                self._n = len(it)
+            except Exception:
+                self._n = None
 
         def __iter__(self):
             self.count = 0
-            # keep progress bar here so we don’t materialize anything
             self._it = iter(TQDM(self.it, desc="Running inference...", unit="img"))
             return self
 
         def __len__(self):
-            return len(self.it)
+            if self._n is None:
+                return 0
+            return (self._n + self.bs - 1) // self.bs
 
         def __next__(self):
-            lp, rp = next(self._it)  # local temp path, remote/original path
-            im = Image.open(lp)
-            if im.mode != "RGB":
-                im = im.convert("RGB")
-            im0 = np.asarray(im)[:, :, ::-1]  # BGR for Ultralytics preprocessor
-            # stash metadata payload for the outer coroutine
-            self._q.append((rp, im))
-            self.count += 1
-            # paths must be a list[str]; s is a list[str] used for verbose printing
-            return [lp], [im0], [""]
+            paths, im0s, s = [], [], []
+            while len(paths) < self.bs:
+                try:
+                    lp, rp = next(self._it)
+                except StopIteration:
+                    if not paths:
+                        raise
+                    break
+                im = Image.open(lp)
+                if im.mode != "RGB":
+                    im = im.convert("RGB")
+                im0 = np.asarray(im)[:, :, ::-1]
+                self._q.append((rp, im))
+                paths.append(lp)
+                im0s.append(im0)
+                s.append("")
+                self.count += 1
+            return paths, im0s, s
 
     yolo = YOLO(model=model)
-    yolo.to(device=torch.device("cuda:0"))
-    yolo.eval()
     yolo.predictor = yolo._smart_load("predictor")(
         overrides={
             "conf": 0.1,
-            "batch": 1,
+            "batch": int(batch_size),
+            "imgsz": int(imgsz),
+            "rect": False,
             "save": False,
-            "mode": "predict",
-            "rect": True,
             "verbose": False,
+            "device": device,
+            "half": precision == "fp16",
         },
         _callbacks=yolo.callbacks,
     )
     yolo.predictor.setup_model(model=yolo.model, verbose=False)
 
-    q: deque[tuple[str, Image.Image]] = deque()
-    loader = _IterLoader(images, q)
+    if precision == "bf16":
+        amp = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    elif precision == "fp16":
+        amp = torch.autocast(device_type="cuda", dtype=torch.float16)
+    else:
+        amp = nullcontext()
 
-    with torch.inference_mode():
-        for result in yolo.predictor(loader, stream=True):
-            rp, im = q.popleft()  # remote/original path and the PIL image we opened
-            metadata = get_metadata(im)
-            metadata["FileName"] = rp
-            result.metadata = metadata
+    q: deque[tuple[str, Image.Image]] = deque()
+    loader = _MemDataset(images, q, bs=batch_size)
+
+    with torch.inference_mode(), amp:
+        for r in yolo.predictor(loader, stream=True):
+            rp, im = q.popleft()
+            md = get_metadata(im)
+            md["FileName"] = rp
+            r.metadata = md
             im.close()
-            yield result
+            yield r
 
 def save_result(result, dst : str, **kwargs):
     metadata = getattr(result, "metadata", None)
