@@ -257,7 +257,7 @@ def main(
         dst_check = {
             p : name for p in rpi.remote_paths 
             if is_image(p) 
-            and not os.path.exists(os.path.join(output, (name := os.path.splitext("__".join(p.split("/")))[0]) + ".json"))
+            and not os.path.exists(os.path.join(output, (name := os.path.splitext(p.replace("/", "__"))[0]) + ".json"))
             and (p not in SKIP_FILES)
         }
         rpi.remote_paths = [p for p in rpi.remote_paths if p in dst_check]
@@ -273,11 +273,11 @@ def main(
 
         results = predict(weights, rpi)
         from ultralytics.engine.results import Results
-        for dst_name in dst_files:
+        for _ in len(rpi):
             try:
                 result = next(results)
                 assert isinstance(result, Results)
-                dst = os.path.join(output, dst_name + ".json")
+                dst = os.path.join(output, result.metadata["FileName"].replace("/", "__") + ".json")
                 if os.path.exists(dst):
                     os.remove(dst)
                 save_result(result, dst=dst, save_conf=True)
