@@ -7,23 +7,15 @@ from collections import deque
 from glob import glob
 from typing import Any, Iterable, Iterator
 
+import numpy as np
 import torch
 from PIL import ExifTags, Image
 from pyremotedata.implicit_mount import IOHandler, RemotePathIterator
 from tqdm import tqdm as TQDM
-import numpy as np
 
 from utils import parse_unknown_arguments
 
-SKIP_FILES = set([
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-04/20200703/102_WSCT/WSCT9566.JPG",
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-04/20200703/102_WSCT/WSCT9567.JPG",
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-04/20200703/102_WSCT/WSCT9568.JPG",
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-08/20200624/101_WSCT/WSCT5690.JPG",
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-08/20200624/101_WSCT/WSCT5691.JPG",
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-08/20200624/101_WSCT/WSCT5692.JPG",
-    "Dryas Cameras Nuolja 2020/Dryas ABIS-08/20200624/101_WSCT/WSCT5693.JPG"
-])
+SKIP_FILES = set([])
 
 def _proc_makernote(makernote : bytes):
     _, temperature, _, cameraID, _ = makernote.decode().split(":")
@@ -153,10 +145,6 @@ def cli():
         "-n", "--n_max", type=int, default=None, required=False,
         help="Maximum number of files to run inference for, default: all files in input. Useful for debugging."
     )
-    parser.add_argument(
-        "--visualize", action="store_true", required=False,
-        help="Plot the predictions. Slow!"
-    )
     args, extra = parser.parse_known_args()
     try:
         extra = parse_unknown_arguments(extra)
@@ -171,8 +159,7 @@ def main(
         input : str, 
         output : str, 
         weights : str, 
-        n_max : int | None=None,
-        visualize : bool=False
+        n_max : int | None=None
     ):
     with IOHandler() as io:
         io.cd(input)
@@ -200,8 +187,6 @@ def main(
             try:
                 result = next(results)
                 assert isinstance(result, Results)
-                if visualize:
-                    raise NotImplementedError("Disabled.")
                 dst = os.path.join(output, dst_name + ".txt")
                 if os.path.exists(dst):
                     os.remove(dst)
