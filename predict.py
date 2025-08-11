@@ -187,7 +187,7 @@ def main(
             try:
                 result = next(results)
                 assert isinstance(result, Results)
-                dst = os.path.join(output, dst_name + ".txt")
+                dst = os.path.join(output, dst_name + ".json")
                 if os.path.exists(dst):
                     os.remove(dst)
                 save_result(result, dst=dst, save_conf=True)
