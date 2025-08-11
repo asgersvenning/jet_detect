@@ -1,5 +1,7 @@
 data/**
 runs/**
+**/*.csv
 **/*.jpg
 **/*.pt
 **/*.pyc
+**/*.ipynb
