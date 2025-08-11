@@ -257,7 +257,7 @@ def main(
         dst_check = {
             p : name for p in rpi.remote_paths 
             if is_image(p) 
-            and not os.path.exists(os.path.join(output, (name := os.path.splitext("__".join(p.split("/")))[0]) + ".txt"))
+            and not os.path.exists(os.path.join(output, (name := os.path.splitext("__".join(p.split("/")))[0]) + ".json"))
             and (p not in SKIP_FILES)
         }
         rpi.remote_paths = [p for p in rpi.remote_paths if p in dst_check]
