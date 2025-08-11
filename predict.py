@@ -253,7 +253,7 @@ def main(
     ):
     with IOHandler() as io:
         io.cd(input)
-        rpi = RemotePathIterator(io, clear_local=True, store=True, batch_parallel=10, n_local_files=512, max_queued_batches=6)
+        rpi = RemotePathIterator(io, clear_local=True, store=True, batch_parallel=14, n_local_files=512, max_queued_batches=6)
         dst_check = {
             p : name for p in rpi.remote_paths 
             if is_image(p) 
