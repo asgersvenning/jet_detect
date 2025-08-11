@@ -5,7 +5,12 @@ import traceback
 from argparse import ArgumentParser
 from collections import deque
 from glob import glob
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Literal
+
+from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor, Future
+from io import BytesIO
+import cv2, math
 
 import numpy as np
 import torch
@@ -56,10 +61,9 @@ def predict(
     imgsz: int = 1280,
     precision: "Literal['fp32','fp16','bf16']" = "bf16",
     device: str | int = "0",
+    io_workers: int | None = None,
+    prefetch_batches: int = 4,
 ) -> Iterator[Any]:
-    from typing import Literal
-    from contextlib import nullcontext
-    import math
     from ultralytics import YOLO
     from ultralytics.data.loaders import LoadImagesAndVideos, SourceTypes
 
@@ -67,53 +71,103 @@ def predict(
         device = str(device)
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
+    if prefetch_batches < 1:
+        raise ValueError("prefetch_batches must be >= 1")
+    if io_workers is None:
+        io_workers = max(4, (os.cpu_count() or 8))
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
 
-    class _MemDataset(LoadImagesAndVideos):
-        def __init__(self, it: Iterable[tuple[str, str]], out_q: deque, bs: int):
+    class _PrefetchDataset(LoadImagesAndVideos):
+        def __init__(
+            self,
+            it: Iterable[tuple[str, str]],
+            meta_q: deque[dict[str, Any]],
+            bs: int,
+            workers: int,
+            depth: int,
+        ):
             self.it = it
-            self._q = out_q
+            self._meta_q = meta_q
             self.mode = "image"
             self.bs = int(bs)
             self.count = 0
             self.source_type = SourceTypes(stream=False, screenshot=False, from_img=True, tensor=False)
+
             try:
-                self._n = len(it)
+                self._n = len(it)  # may fail for generators
             except Exception:
                 self._n = None
 
-        def __iter__(self):
-            self.count = 0
-            self._it = iter(TQDM(self.it, desc="Running inference...", unit="img"))
-            return self
+            self._exec = ThreadPoolExecutor(max_workers=int(workers))
+            self._buf: deque[Future] = deque()
+            self._depth = int(depth) * self.bs
+            self._iter = None
+            self._exhausted = False
 
         def __len__(self):
             if self._n is None:
                 return 0
             return (self._n + self.bs - 1) // self.bs
 
+        def __iter__(self):
+            self.count = 0
+            self._exhausted = False
+            self._iter = iter(TQDM(self.it, desc="Prefetching...", unit="img"))
+            self._fill()
+            return self
+
+        def _submit(self, lp: str, rp: str):
+            def _job():
+                with open(lp, "rb") as f:
+                    data = f.read()
+                with Image.open(BytesIO(data)) as pim:
+                    md = get_metadata(pim)
+                md["FileName"] = rp
+                arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)  # BGR uint8
+                return lp, arr, md
+            self._buf.append(self._exec.submit(_job))
+
+        def _fill(self):
+            while len(self._buf) < self._depth and not self._exhausted:
+                try:
+                    lp, rp = next(self._iter)
+                    self._submit(lp, rp)
+                except StopIteration:
+                    self._exhausted = True
+                    break
+
         def __next__(self):
+            if not self._buf and self._exhausted:
+                self._exec.shutdown(wait=True, cancel_futures=False)
+                raise StopIteration
+
             paths, im0s, s = [], [], []
             while len(paths) < self.bs:
-                try:
-                    lp, rp = next(self._it)
-                except StopIteration:
-                    if not paths:
-                        raise
-                    break
-                im = Image.open(lp)
-                if im.mode != "RGB":
-                    im = im.convert("RGB")
-                im0 = np.asarray(im)[:, :, ::-1]
-                self._q.append((rp, im))
+                if not self._buf:
+                    if self._exhausted:
+                        break
+                    self._fill()
+                    if not self._buf and self._exhausted:
+                        break
+
+                lp, arr, md = self._buf.popleft().result()
+                self._meta_q.append(md)
                 paths.append(lp)
-                im0s.append(im0)
+                im0s.append(arr)
                 s.append("")
                 self.count += 1
+
+                # keep producer busy while we consume
+                if len(self._buf) < self._depth // 2 and not self._exhausted:
+                    self._fill()
+
+            if not paths:
+                self._exec.shutdown(wait=True, cancel_futures=False)
+                raise StopIteration
             return paths, im0s, s
 
     yolo = YOLO(model=model)
@@ -132,23 +186,21 @@ def predict(
     )
     yolo.predictor.setup_model(model=yolo.model, verbose=False)
 
-    if precision == "bf16":
-        amp = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-    elif precision == "fp16":
-        amp = torch.autocast(device_type="cuda", dtype=torch.float16)
-    else:
-        amp = nullcontext()
+    amp = (
+        torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if precision == "bf16"
+        else torch.autocast(device_type="cuda", dtype=torch.float16)
+        if precision == "fp16"
+        else nullcontext()
+    )
 
-    q: deque[tuple[str, Image.Image]] = deque()
-    loader = _MemDataset(images, q, bs=batch_size)
+    meta_q: deque[dict[str, Any]] = deque()
+    loader = _PrefetchDataset(images, meta_q, bs=batch_size, workers=io_workers, depth=prefetch_batches)
 
     with torch.inference_mode(), amp:
         for r in yolo.predictor(loader, stream=True):
-            rp, im = q.popleft()
-            md = get_metadata(im)
-            md["FileName"] = rp
+            md = meta_q.popleft()
             r.metadata = md
-            im.close()
             yield r
 
 def save_result(result, dst : str, **kwargs):
