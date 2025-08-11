@@ -1,3 +1,11 @@
+# One-click setup for fresh environments
+```sh
+git clone https://github.com/asgersvenning/jet_detect.git
+cd jet_detect
+sudo bash setup_ucloud.sh
+# Simply follow the instructions, then the inference will run by itself
+```
+
 # Setup and train
 1. Unzip `data.zip` file in the root directory (e.g. `unzip data.zip -d .`).
 2. Install `micromamba`/`mamba`/`conda` and run `[micromamba/mamba/conda] create -f conda.yaml`.
