@@ -273,7 +273,7 @@ def main(
 
         results = predict(weights, rpi)
         from ultralytics.engine.results import Results
-        for _ in len(rpi):
+        for _ in range(len(rpi)):
             try:
                 result = next(results)
                 assert isinstance(result, Results)
