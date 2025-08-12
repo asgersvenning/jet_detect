@@ -251,7 +251,7 @@ def main(
         weights : str, 
         n_max : int | None=None
     ):
-    with IOHandler() as io:
+    with IOHandler(verbose=True) as io:
         io.cd(input)
         rpi = RemotePathIterator(io, clear_local=True, store=True, batch_parallel=14, n_local_files=4096, max_queued_batches=32)
         dst_check = {
