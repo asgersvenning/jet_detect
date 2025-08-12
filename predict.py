@@ -288,7 +288,7 @@ def main(
             except StopIteration:
                 break
             except Exception:
-                with open(os.path.join(output, dst_name + ".err"), "w") as f:
+                with open(os.path.join(output, "ERR" + ".err"), "w") as f:
                     f.write(traceback.format_exc())
 
 if __name__ == "__main__":
