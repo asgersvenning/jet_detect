@@ -122,6 +122,9 @@ def predict(
 
         def _submit(self, lp: str, rp: str):
             def _job():
+                job_success = True
+                md = arr = None
+                
                 try:
                     with open(lp, "rb") as f:
                         data = f.read()
@@ -130,9 +133,16 @@ def predict(
                     md["FileName"] = rp
                     arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)  # BGR uint8
                 except Exception:
-                    arr = np.zeros((512, 512, 3), dtype=np.uint8)
-                    md = {"FileName": f"ERROR_{lp}"}
-                return lp, arr, md
+                    job_success = False
+                
+                if md is None or arr is None:
+                    job_success = False
+                
+                if job_success:
+                    return lp, arr, md
+                else:
+                    return lp, np.zeros((512, 512, 3), dtype=np.uint8), {"FileName": f"ERROR_{lp}"}
+                
             self._buf.append(self._exec.submit(_job))
 
         def _fill(self):
