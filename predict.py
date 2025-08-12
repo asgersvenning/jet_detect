@@ -277,7 +277,7 @@ def main(
             try:
                 result = next(results)
                 assert isinstance(result, Results)
-                dst = os.path.join(output, result.metadata["FileName"].replace("/", "__") + ".json")
+                dst = os.path.join(output, os.path.splitext(result.metadata["FileName"].replace("/", "__"))[0] + ".json")
                 if os.path.exists(dst):
                     os.remove(dst)
                 save_result(result, dst=dst, save_conf=True)
