@@ -24,14 +24,17 @@ def combine_json_to_csv(
         w = csv.DictWriter(fh_out, fieldnames=cols)
         w.writeheader()
         for f in prog(files):
-            with open(f, 'r', encoding='utf-8') as fh:
-                obj = json.load(fh)
-            row = {
-                k : (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
-                for k, v in obj.items()
-            }
-            row['origin'] = os.path.basename(f)
-            w.writerow(row)
+            try:
+                with open(f, 'r', encoding='utf-8') as fh:
+                    obj = json.load(fh)
+                row = {
+                    k : (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
+                    for k, v in obj.items()
+                }
+                row['origin'] = os.path.basename(f)
+                w.writerow(row)
+            except Exception as e:
+                print(f'Error on file {f}: {e}')
 
 def cli():
     from argparse import ArgumentParser
