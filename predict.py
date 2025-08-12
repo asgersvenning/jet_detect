@@ -122,12 +122,16 @@ def predict(
 
         def _submit(self, lp: str, rp: str):
             def _job():
-                with open(lp, "rb") as f:
-                    data = f.read()
-                with Image.open(BytesIO(data)) as pim:
-                    md = get_metadata(pim)
-                md["FileName"] = rp
-                arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)  # BGR uint8
+                try:
+                    with open(lp, "rb") as f:
+                        data = f.read()
+                    with Image.open(BytesIO(data)) as pim:
+                        md = get_metadata(pim)
+                    md["FileName"] = rp
+                    arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)  # BGR uint8
+                except Exception:
+                    arr = np.zeros((512, 512, 3), dtype=np.uint8)
+                    md = {"FileName": f"ERROR_{lp}"}
                 return lp, arr, md
             self._buf.append(self._exec.submit(_job))
 
@@ -276,7 +280,7 @@ def main(
         for _ in range(len(rpi)):
             try:
                 result = next(results)
-                assert isinstance(result, Results)
+                assert isinstance(result, Results), result
                 dst = os.path.join(output, os.path.splitext(result.metadata["FileName"].replace("/", "__"))[0] + ".json")
                 if os.path.exists(dst):
                     os.remove(dst)
