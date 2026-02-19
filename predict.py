@@ -10,8 +10,8 @@ from typing import Any, Iterable, Iterator, Literal
 from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor, Future
 from io import BytesIO
-import cv2, math
 
+from torchvision.transforms.functional import pil_to_tensor, convert_image_dtype
 import numpy as np
 import torch
 from PIL import ExifTags, Image
@@ -131,7 +131,10 @@ def predict(
                     with Image.open(BytesIO(data)) as pim:
                         md = get_metadata(pim)
                     md["FileName"] = rp
-                    arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)  # BGR uint8
+                    arr = pil_to_tensor(Image.open(lp).convert("RGB"))
+                    if arr.dtype != torch.uint8:
+                        arr = convert_image_dtype(arr, torch.uint8)
+                    arr = arr.permute(1, 2, 0).numpy()
                 except Exception:
                     job_success = False
                 
@@ -297,10 +300,9 @@ def main(
                 save_result(result, dst=dst, save_conf=True)
             except StopIteration:
                 break
-            except Exception:
+            except Exception as e:
                 with open(os.path.join(output, "ERR" + ".err"), "w") as f:
-                    f.write(traceback.format_exc())
+                    f.write(traceback.format_exc() + "\n" + str(e))
 
 if __name__ == "__main__":
     main(**cli())
-    

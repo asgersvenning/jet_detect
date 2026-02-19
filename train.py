@@ -7,10 +7,16 @@ from utils import parse_unknown_arguments
 CFG = {
     "model" : "yolo11s.pt",
     "epochs" : 5,
-    "imgsz" : 640, 
+    "imgsz" : 640*2, 
     "workers" : 16, 
-    "batch" : 16,
-    "single_cls" : True
+    "batch" : 8,
+    "single_cls" : True,
+    # AUGMENTATION
+    "perspective" : 0.0001,
+    "shear" : 25,
+    "mosaic" : 0.75,
+    "mixup" : 0.25,
+    "hsv_h" : 0
 }
 
 INVALID_ARGS = ["data"]
