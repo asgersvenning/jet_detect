@@ -14,15 +14,26 @@ def config():
     parser = ArgumentParser(prog = "train_yolov11", description="Predict with a YOLOv11 model", epilog="")
     parser.add_argument(
         "-i", "--input", type=str, required=True,
-        help="Path to a directory with images, an image file or a glob to image files."
+        dest="input_dir",
+        help="Path to a directory on ERDA."
     )
     parser.add_argument(
         "-o", "--output", type=str, required=True,
+        dest="output_dir",
         help="Path to result directory."
     )
     parser.add_argument(
         "-w", "--weights", type=str, required=True,
         help="Path to the weights of the model which you wish to perform inference with."
+    )
+    parser.add_argument(
+        "-p", "--pattern", type=str, required=False,
+        default=r".*\.(je?pg|png|webp|tif)$",
+        help="Pattern for files to select."
+    )
+    parser.add_argument(
+        "--restart", action="store_true", required=False,
+        help="Rerun and override existing predictions."
     )
     parser.add_argument(
         "--visualize", action="store_true", required=False,
@@ -68,14 +79,27 @@ def predict(model, images : list[str], batch_size : int=16):
             batch = []
         i += 1
 
-if __name__ == "__main__":
-    args = config()
-
-    # input_images = search_input(args["input"])
+def main(
+        input_dir : str,
+        output_dir : str,
+        weights : str,
+        pattern : str,
+        restart : bool,
+        visualize : bool
+    ):
+    pattern = re.compile(pattern, re.IGNORECASE)
     with IOHandler() as io:
-        output_dir = args["output"]
-        io.cd(args["input"])
+        io.cd(input_dir)
         rpi = RemotePathIterator(io, store=False)
+
+        # Filter by pattern
+        rpi.remote_paths = [path for path in rpi.remote_paths if re.match(pattern, path) is not None]
+        dst_stub = [os.path.join(output_dir, os.path.splitext(os.path.basename(path))[0]) for path in rpi.remote_paths]
+        if not restart:
+            # Filter by existing predictions
+            needs_prediction = [i for i, name in enumerate(dst_stub) if not os.path.exists(name + ".txt")]
+            rpi.remote_paths = [rpi.remote_paths[i] for i in needs_prediction]
+            dst_stub = [dst_stub[i] for i in needs_prediction]
 
         if not os.path.exists(output_dir) or not os.path.isdir(output_dir):
             raise NotADirectoryError(
@@ -83,15 +107,19 @@ if __name__ == "__main__":
                 'Please make sure to create the output directory and that it is not a file.'
             )
 
-        results = predict(args["weights"], rpi)
+        results = predict(weights, rpi)
         from ultralytics.engine.results import Results
-        for result, src in zip(results, rpi.remote_paths):
-            name = os.path.splitext(os.path.basename(src))[0]
+        for result, name in zip(results, dst_stub):
             assert isinstance(result, Results)
-            if args["visualize"]:
-                result.save(filename=os.path.join(output_dir, name + ".jpg"))
-            dst = os.path.join(output_dir, name + ".txt")
-            if os.path.exists(dst):
-                os.remove(dst)
-            result.save_txt(txt_file=dst, save_conf=True)
+            vpath, rpath = name + ".jpg", name + ".txt"
+            if visualize:
+                if os.path.exists(vpath):
+                    os.remove(vpath)
+                result.save(filename=vpath)
+            if os.path.exists(rpath):
+                os.remove(rpath)
+            result.save_txt(txt_file=rpath, save_conf=True)
+
+if __name__ == "__main__":
+    main(**config())
     
