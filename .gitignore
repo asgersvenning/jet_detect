@@ -3,3 +3,4 @@ runs/**
 **/*.jpg
 **/*.pt
 **/*.pyc
+.vscode/**
